@@ -84,18 +84,36 @@ def load_bp(oauth):
     def sso_oauth(client_id):
         client = oauth.create_client(client_id)
         redirect_uri=url_for('sso.sso_redirect', client_id=client_id, _external=True)
-        return client.authorize_redirect(redirect_uri)
+        return client.authorize_redirect(redirect_uri, scope='openid profile email roles')
 
 
     @plugin_bp.route("/sso/redirect/<int:client_id>", methods = ['GET'])
     def sso_redirect(client_id):
+        import jwt
+        
         client = oauth.create_client(client_id)
-        client.authorize_access_token()
-        api_data = client.get('').json()
+        token = client.authorize_access_token()
+        
+        # Decode ID token instead of calling userinfo (Keycloak includes all info in ID token)
+        id_token = token.get('id_token')
+        if id_token:
+            # Decode without verification (we trust Keycloak since it's internal)
+            api_data = jwt.decode(id_token, options={"verify_signature": False})
+        else:
+            # Fallback to userinfo if no ID token
+            api_data = client.get('userinfo').json()
 
-        user_name = api_data["preferred_username"]
-        user_email = api_data["email"]
-        user_roles = api_data.get("roles")
+        # Support multiple username fields from different OAuth providers
+        user_name = api_data.get("preferred_username") or api_data.get("username") or api_data.get("name") or api_data.get("sub")
+        user_email = api_data.get("email")
+        user_roles = api_data.get("realm_access", {}).get("roles", [])
+        
+        if not user_email:
+            error_for(
+                endpoint="auth.login",
+                message="Email not provided by SSO provider.",
+            )
+            return redirect(url_for("auth.login"))
 
         user = Users.query.filter_by(email=user_email).first()
         if user is None:
