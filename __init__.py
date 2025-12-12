@@ -59,7 +59,8 @@ def load(app):
     app.jinja_env.globals.update(oauth_clients=oauth_clients)
 
     # Update the login template
-    oauth_buttons_enabled = get_app_config("OAUTH_CREATE_BUTTONS")
+    # Read from environment variable first, fallback to app config
+    oauth_buttons_enabled = os.getenv("OAUTH_CREATE_BUTTONS") or get_app_config("OAUTH_CREATE_BUTTONS")
     if oauth_buttons_enabled in (True, "true", "True", "1", 1):
         update_login_template(app)
 
